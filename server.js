@@ -9,22 +9,27 @@ app.use(express.json());
 async function makeScript(title, text) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("No Gemini key set on Render");
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
   const prompt =
     "Write a 30-second video narration script (about 70 words) in simple, engaging English based on this article. Return only the narration text.\n\nTitle: " +
     title + "\n\n" + text;
-  const r = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-    }
-  );
-  const data = await r.json();
-  const out = data.candidates && data.candidates[0] && data.candidates[0].content.parts[0].text;
-  if (!out) throw new Error("Gemini error: " + JSON.stringify(data).slice(0, 300));
-  return out.trim();
+  let last = "";
+  for (let i = 0; i < 3; i++) {
+    const r = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      }
+    );
+    const data = await r.json();
+    const out = data.candidates && data.candidates[0] && data.candidates[0].content.parts[0].text;
+    if (out) return out.trim();
+    last = JSON.stringify(data).slice(0, 300);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+  throw new Error("Gemini error: " + last);
 }
 
 app.get("/", (req, res) => {

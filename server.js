@@ -12,9 +12,12 @@ app.get("/", (req, res) => {
 
 app.post("/read", async (req, res) => {
   try {
-    const url = req.body.url;
-    if (!url || !/^https?:\/\//i.test(url)) {
-      return res.status(400).json({ error: "Please paste a full link starting with http or https" });
+    let url = (req.body.url || "").trim();
+    if (!url) {
+      return res.status(400).json({ error: "Please paste a link first" });
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      url = "https://" + url;
     }
     const response = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
     const html = await response.text();

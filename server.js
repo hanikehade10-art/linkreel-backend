@@ -1,6 +1,10 @@
 const express = require("express");
 const cors = require("cors");
 const cheerio = require("cheerio");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { EdgeTTS } = require("node-edge-tts");
 
 const app = express();
 app.use(cors());
@@ -11,7 +15,7 @@ async function makeScript(title, text) {
   if (!key) throw new Error("No Gemini key set on Render");
   const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
   const prompt =
-    "Write a 30-second video narration script (about 70 words) in simple, engaging English based on this article. Return only the narration text.\n\nTitle: " +
+    "Write a 30-second video narration script (about 70 words) in simple, engaging English based on this article. Stay close to the article and do not exaggerate. Return only the narration text.\n\nTitle: " +
     title + "\n\n" + text;
   let last = "";
   for (let i = 0; i < 3; i++) {
@@ -30,6 +34,19 @@ async function makeScript(title, text) {
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
   throw new Error("Gemini error: " + last);
+}
+
+async function makeAudio(script) {
+  const file = path.join(os.tmpdir(), "linkreel-" + Date.now() + ".mp3");
+  const tts = new EdgeTTS({
+    voice: "en-US-AriaNeural",
+    lang: "en-US",
+    outputFormat: "audio-24khz-48kbitrate-mono-mp3"
+  });
+  await tts.ttsPromise(script, file);
+  const audio = fs.readFileSync(file).toString("base64");
+  fs.unlinkSync(file);
+  return audio;
 }
 
 app.get("/", (req, res) => {
@@ -60,7 +77,14 @@ app.post("/read", async (req, res) => {
       return res.status(400).json({ error: "Could not find readable text on that page" });
     }
     const script = await makeScript(title, text);
-    res.json({ title, text, script });
+    let audio = null;
+    let audioError = null;
+    try {
+      audio = await makeAudio(script);
+    } catch (e) {
+      audioError = e.message;
+    }
+    res.json({ title, script, audio, audioError });
   } catch (e) {
     res.status(500).json({ error: "Something went wrong: " + e.message });
   }

@@ -23,7 +23,7 @@ async function makeScript(title, text) {
     "Write a 30-second video narration script (about 70 words) in simple, engaging English based on this article. Stay close to the article and do not exaggerate. Return only the narration text.\n\nTitle: " +
     title + "\n\n" + text;
   let last = "";
-  for (let i = 0; i < 3; i++) {
+for (let i = 0; i < 5; i++) {
     const r = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent",
       {
@@ -36,7 +36,7 @@ async function makeScript(title, text) {
     const out = data.candidates && data.candidates[0] && data.candidates[0].content.parts[0].text;
     if (out) return out.trim();
     last = JSON.stringify(data).slice(0, 300);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, (i + 1) * 4000));
   }
   throw new Error("Gemini error: " + last);
 }

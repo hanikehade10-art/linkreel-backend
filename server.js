@@ -142,7 +142,7 @@ async function downloadImages(urls, dir, max) {
       const ct = r.headers.get("content-type") || "";
       if (!ct.startsWith("image/")) continue;
       const buf = Buffer.from(await r.arrayBuffer());
-      if (buf.length < 8000) continue;
+      if (buf.length < 8000 || buf.length > 6000000) continue;
       const ext = ct.includes("png") ? "png" : ct.includes("webp") ? "webp" : "jpg";
       const file = path.join(dir, "img" + files.length + "." + ext);
       fs.writeFileSync(file, buf);
@@ -166,33 +166,38 @@ async function buildVideo(job, imageUrls, dir, audioFile, maxImages) {
     const images = await downloadImages(imageUrls, dir, maxImages);
     const seconds = (fs.statSync(audioFile).size * 8) / 48000;
     const out = path.join(dir, "video.mp4");
-    let args;
-    if (images.length === 0) {
-      args = [
-        "-y", "-f", "lavfi", "-i", "color=c=0x1a1a2e:s=480x854:r=15",
+    const clips = [];
+    if (images.length > 0) {
+      const each = seconds / images.length + 0.5;
+      for (let i = 0; i < images.length; i++) {
+        const clip = path.join(dir, "clip" + i + ".mp4");
+        try {
+          await runFfmpeg([
+            "-y", "-threads", "1", "-loop", "1", "-t", String(each), "-i", images[i],
+            "-vf", "scale=480:854:force_original_aspect_ratio=increase,crop=480:854,setsar=1,fps=15",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-an", clip
+          ]);
+          clips.push(clip);
+        } catch (e) {}
+        fs.rmSync(images[i], { force: true });
+      }
+    }
+    if (clips.length === 0) {
+      await runFfmpeg([
+        "-y", "-threads", "1", "-f", "lavfi", "-i", "color=c=0x1a1a2e:s=480x854:r=15",
         "-i", audioFile, "-shortest",
         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-movflags", "+faststart", out
-      ];
+      ]);
     } else {
-      const each = seconds / images.length + 1;
-      args = ["-y"];
-      images.forEach((img) => args.push("-loop", "1", "-t", String(each), "-i", img));
-      args.push("-i", audioFile);
-      const parts = images.map(
-        (_, i) =>
-          "[" + i + ":v]scale=480:854:force_original_aspect_ratio=increase,crop=480:854,setsar=1,fps=15[v" + i + "]"
-      );
-      const joined = images.map((_, i) => "[v" + i + "]").join("");
-      const filter = parts.join(";") + ";" + joined + "concat=n=" + images.length + ":v=1:a=0[v]";
-      args.push(
-        "-filter_complex", filter,
-        "-map", "[v]", "-map", images.length + ":a", "-shortest",
-        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-movflags", "+faststart", out
-      );
+      const list = path.join(dir, "list.txt");
+      fs.writeFileSync(list, clips.map((c) => "file '" + c + "'").join("\n"));
+      await runFfmpeg([
+        "-y", "-threads", "1", "-f", "concat", "-safe", "0", "-i", list, "-i", audioFile,
+        "-map", "0:v", "-map", "1:a", "-shortest",
+        "-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart", out
+      ]);
     }
-    await runFfmpeg(args);
     job.file = out;
     job.status = "done";
   } catch (e) {

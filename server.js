@@ -243,16 +243,26 @@ async function loginAndCrawl(startUrl, login, instructions) {
 
     await page.goto(startUrl, { waitUntil: "domcontentloaded" });
     await sleep(1500);
+    await page.waitForSelector("input[type=password]", { visible: true, timeout: 8000 }).catch(() => null);
 
     let f = await findLoginFields(page);
     if (!f) {
-      const href = await page.evaluate(() => {
-        const a = Array.from(document.querySelectorAll("a[href]")).find((x) => /log\s?in|sign\s?in/i.test(x.innerText || ""));
-        return a ? a.href : null;
-      });
-      if (href && !isBlocked(href)) {
-        await page.goto(href, { waitUntil: "domcontentloaded" });
-        await sleep(1500);
+      const clicked = await page
+        .evaluate(() => {
+          const el = Array.from(document.querySelectorAll("a, button, [role=button]")).find((x) => {
+            const t = (x.innerText || "").trim();
+            return t.length < 25 && /log\s?in|sign\s?in/i.test(t);
+          });
+          if (el) {
+            el.click();
+            return true;
+          }
+          return false;
+        })
+        .catch(() => true);
+      if (clicked) {
+        await sleep(2500);
+        await page.waitForSelector("input[type=password]", { visible: true, timeout: 8000 }).catch(() => null);
         f = await findLoginFields(page);
       }
     }
